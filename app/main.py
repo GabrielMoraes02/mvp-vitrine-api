@@ -36,7 +36,7 @@ app = FastAPI(
     version="1.0.0",
     description=(
         "API do MVP Vitrine. Gerencia o catálogo local em SQLite e integra produtos "
-        "da Fake Store API."
+        "de um catálogo público externo."
     ),
     lifespan=lifespan,
 )

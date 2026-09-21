@@ -66,7 +66,7 @@ class SyncResult(BaseModel):
     imported: int
     updated: int
     total_received: int
-    source: str = "Fake Store API"
+    source: str = "Catálogo externo"
 
 
 class CategoryCreate(BaseModel):

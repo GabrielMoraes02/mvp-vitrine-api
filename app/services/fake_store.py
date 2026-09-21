@@ -31,7 +31,7 @@ DESCRIPTIONS_PT_BR = {
 
 def localized_description(external_id: int, fallback: str | None) -> str:
     return DESCRIPTIONS_PT_BR.get(
-        external_id, fallback or "Produto importado da Fake Store."
+        external_id, fallback or "Produto importado do catálogo externo."
     )
 
 
@@ -46,7 +46,7 @@ async def fetch_products() -> list[dict]:
             response.raise_for_status()
             products = response.json()
     except (httpx.HTTPError, ValueError) as error:
-        raise FakeStoreUnavailable("Não foi possível consultar a Fake Store API.") from error
+        raise FakeStoreUnavailable("Não foi possível consultar o catálogo externo.") from error
 
     normalized = []
     for item in products:
