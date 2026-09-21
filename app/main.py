@@ -155,7 +155,7 @@ def remove_product(product_id: int) -> Response:
 
 
 @app.post("/api/products/sync", response_model=SyncResult, tags=["Integrações"])
-async def sync_fake_store() -> SyncResult:
+async def sync_external_catalog() -> SyncResult:
     try:
         products = await fetch_products()
     except FakeStoreUnavailable as error:
