@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app import database
 from app.main import app
+from app.services.fake_store import localized_description
 
 
 def test_product_crud(tmp_path: Path, monkeypatch) -> None:
@@ -75,6 +76,12 @@ def test_sync_fake_store(tmp_path: Path, monkeypatch) -> None:
         product = client.get("/api/products").json()["items"][0]
         assert product["source"] == "fake_store"
         assert product["external_id"] == 42
+
+
+def test_known_fake_store_description_is_localized() -> None:
+    description = localized_description(1, "English fallback")
+    assert "Mochila ideal" in description
+    assert localized_description(999, "Descrição alternativa") == "Descrição alternativa"
 
 
 def test_category_and_subcategory_management(tmp_path: Path, monkeypatch) -> None:
