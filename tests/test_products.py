@@ -85,6 +85,8 @@ def test_category_and_subcategory_management(tmp_path: Path, monkeypatch) -> Non
         category = client.post("/api/categories", json={"name": "Casa"})
         assert category.status_code == 201
         category_id = category.json()["id"]
+        duplicate_category = client.post("/api/categories", json={"name": "casa"})
+        assert duplicate_category.status_code == 409
 
         subcategory = client.post(
             "/api/subcategories", json={"name": "Cozinha", "category_id": category_id}
@@ -114,3 +116,42 @@ def test_category_and_subcategory_management(tmp_path: Path, monkeypatch) -> Non
         assert client.delete(f"/api/products/{product.json()['id']}").status_code == 204
         assert client.delete(f"/api/subcategories/{subcategory_id}").status_code == 204
         assert client.delete(f"/api/categories/{category_id}").status_code == 204
+
+
+def test_product_rejects_invalid_classification(tmp_path: Path, monkeypatch) -> None:
+    test_database = tmp_path / "invalid-classification.db"
+    monkeypatch.setattr(database, "DATABASE_PATH", test_database)
+
+    with TestClient(app) as client:
+        first = client.post("/api/categories", json={"name": "Casa"}).json()
+        second = client.post("/api/categories", json={"name": "Jardim"}).json()
+        subcategory = client.post(
+            "/api/subcategories",
+            json={"name": "Cozinha", "category_id": first["id"]},
+        ).json()
+        base_product = {
+            "title": "Produto inválido",
+            "description": "Valida referências de classificação.",
+            "price": 49.9,
+            "category": "Qualquer",
+            "image": "https://example.com/invalid.png",
+            "stock": 3,
+        }
+
+        missing_category = client.post(
+            "/api/products",
+            json={**base_product, "category_id": 999_999},
+        )
+        assert missing_category.status_code == 422
+        assert missing_category.json()["detail"] == "Categoria inválida."
+
+        mismatched = client.post(
+            "/api/products",
+            json={
+                **base_product,
+                "category_id": second["id"],
+                "subcategory_id": subcategory["id"],
+            },
+        )
+        assert mismatched.status_code == 422
+        assert "não pertence" in mismatched.json()["detail"]

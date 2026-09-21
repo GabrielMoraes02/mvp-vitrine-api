@@ -290,8 +290,23 @@ def get_category(category_id: int) -> dict[str, Any] | None:
 
 
 def create_category(name: str) -> dict[str, Any]:
+    cleaned_name = name.strip()
     with connect() as connection:
-        category_id = _ensure_category(connection, name.strip())
+        if connection.execute(
+            "SELECT 1 FROM categories WHERE name = ? COLLATE NOCASE", (cleaned_name,)
+        ).fetchone():
+            raise sqlite3.IntegrityError("category name already exists")
+        base_slug = slugify(cleaned_name) or "categoria"
+        slug = base_slug
+        counter = 2
+        while connection.execute("SELECT 1 FROM categories WHERE slug = ?", (slug,)).fetchone():
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+        cursor = connection.execute(
+            "INSERT INTO categories (name, slug, created_at) VALUES (?, ?, ?)",
+            (cleaned_name, slug, utc_now()),
+        )
+        category_id = cursor.lastrowid
     return get_category(category_id)  # type: ignore[return-value]
 
 

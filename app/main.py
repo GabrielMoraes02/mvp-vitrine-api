@@ -49,6 +49,40 @@ app.add_middleware(
 )
 
 
+def validate_product_classification(
+    data: dict, current: Optional[dict] = None
+) -> dict:
+    """Keep product category and subcategory references consistent."""
+    merged = {**(current or {}), **data}
+    category_id = merged.get("category_id")
+    subcategory_id = merged.get("subcategory_id")
+
+    if category_id is None:
+        if subcategory_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Selecione uma categoria para usar esta subcategoria.",
+            )
+        return data
+
+    category = database.get_category(category_id)
+    if not category:
+        raise HTTPException(status_code=422, detail="Categoria inválida.")
+
+    if subcategory_id is not None:
+        subcategory = database.get_subcategory(subcategory_id)
+        if not subcategory:
+            raise HTTPException(status_code=422, detail="Subcategoria inválida.")
+        if subcategory["category_id"] != category_id:
+            raise HTTPException(
+                status_code=422,
+                detail="A subcategoria não pertence à categoria selecionada.",
+            )
+
+    data["category"] = category["name"]
+    return data
+
+
 @app.get("/health", tags=["Sistema"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -91,12 +125,19 @@ def get_product(product_id: int) -> Product:
     tags=["Produtos"],
 )
 def create_product(payload: ProductCreate) -> Product:
-    return Product(**database.create_product(payload.model_dump()))
+    data = validate_product_classification(payload.model_dump())
+    return Product(**database.create_product(data))
 
 
 @app.patch("/api/products/{product_id}", response_model=Product, tags=["Produtos"])
 def patch_product(product_id: int, payload: ProductUpdate) -> Product:
-    product = database.update_product(product_id, payload.model_dump(exclude_unset=True))
+    current = database.get_product(product_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Produto não encontrado.")
+    data = validate_product_classification(
+        payload.model_dump(exclude_unset=True), current=current
+    )
+    product = database.update_product(product_id, data)
     if not product:
         raise HTTPException(status_code=404, detail="Produto não encontrado.")
     return Product(**product)
