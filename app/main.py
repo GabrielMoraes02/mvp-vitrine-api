@@ -9,12 +9,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import database
 from .config import FRONTEND_ORIGINS
 from .models import (
+    Category,
+    CategoryCreate,
+    CategoryUpdate,
     DashboardSummary,
     Product,
     ProductCreate,
     ProductList,
     ProductUpdate,
     SyncResult,
+    Subcategory,
+    SubcategoryCreate,
+    SubcategoryUpdate,
 )
 from .services.fake_store import FakeStoreUnavailable, fetch_products
 
@@ -126,3 +132,76 @@ async def sync_fake_store() -> SyncResult:
 @app.get("/api/dashboard", response_model=DashboardSummary, tags=["Administração"])
 def get_dashboard() -> DashboardSummary:
     return DashboardSummary(**database.dashboard_summary())
+
+
+@app.get("/api/categories", response_model=list[Category], tags=["Categorias"])
+def get_categories() -> list[Category]:
+    return [Category(**item) for item in database.list_categories()]
+
+
+@app.post("/api/categories", response_model=Category, status_code=201, tags=["Categorias"])
+def post_category(payload: CategoryCreate) -> Category:
+    try:
+        return Category(**database.create_category(payload.name))
+    except Exception as error:
+        raise HTTPException(status_code=409, detail="Já existe uma categoria com esse nome.") from error
+
+
+@app.patch("/api/categories/{category_id}", response_model=Category, tags=["Categorias"])
+def patch_category(category_id: int, payload: CategoryUpdate) -> Category:
+    try:
+        category = database.update_category(category_id, payload.name)
+    except Exception as error:
+        raise HTTPException(status_code=409, detail="Nome de categoria já utilizado.") from error
+    if not category:
+        raise HTTPException(status_code=404, detail="Categoria não encontrada.")
+    return Category(**category)
+
+
+@app.delete("/api/categories/{category_id}", status_code=204, tags=["Categorias"])
+def remove_category(category_id: int) -> Response:
+    deleted, reason = database.delete_category(category_id)
+    if not deleted:
+        if reason == "in_use":
+            raise HTTPException(status_code=409, detail="A categoria possui produtos ou subcategorias vinculados.")
+        raise HTTPException(status_code=404, detail="Categoria não encontrada.")
+    return Response(status_code=204)
+
+
+@app.get("/api/subcategories", response_model=list[Subcategory], tags=["Subcategorias"])
+def get_subcategories(category_id: Optional[int] = None) -> list[Subcategory]:
+    return [Subcategory(**item) for item in database.list_subcategories(category_id)]
+
+
+@app.post("/api/subcategories", response_model=Subcategory, status_code=201, tags=["Subcategorias"])
+def post_subcategory(payload: SubcategoryCreate) -> Subcategory:
+    try:
+        subcategory = database.create_subcategory(payload.name, payload.category_id)
+    except Exception as error:
+        raise HTTPException(status_code=409, detail="Já existe uma subcategoria com esse nome.") from error
+    if not subcategory:
+        raise HTTPException(status_code=404, detail="Categoria não encontrada.")
+    return Subcategory(**subcategory)
+
+
+@app.patch("/api/subcategories/{subcategory_id}", response_model=Subcategory, tags=["Subcategorias"])
+def patch_subcategory(subcategory_id: int, payload: SubcategoryUpdate) -> Subcategory:
+    try:
+        subcategory = database.update_subcategory(
+            subcategory_id, payload.model_dump(exclude_unset=True)
+        )
+    except Exception as error:
+        raise HTTPException(status_code=409, detail="Nome de subcategoria já utilizado.") from error
+    if not subcategory:
+        raise HTTPException(status_code=404, detail="Subcategoria ou categoria não encontrada.")
+    return Subcategory(**subcategory)
+
+
+@app.delete("/api/subcategories/{subcategory_id}", status_code=204, tags=["Subcategorias"])
+def remove_subcategory(subcategory_id: int) -> Response:
+    deleted, reason = database.delete_subcategory(subcategory_id)
+    if not deleted:
+        if reason == "in_use":
+            raise HTTPException(status_code=409, detail="A subcategoria possui produtos vinculados.")
+        raise HTTPException(status_code=404, detail="Subcategoria não encontrada.")
+    return Response(status_code=204)

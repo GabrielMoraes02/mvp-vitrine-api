@@ -14,6 +14,8 @@ class ProductBase(BaseModel):
     description: str = Field(min_length=2, max_length=1200)
     price: float = Field(gt=0)
     category: str = Field(min_length=2, max_length=80)
+    category_id: Optional[int] = None
+    subcategory_id: Optional[int] = None
     image: HttpUrl
     stock: int = Field(default=10, ge=0, le=100_000)
     active: bool = True
@@ -30,6 +32,8 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = Field(default=None, min_length=2, max_length=1200)
     price: Optional[float] = Field(default=None, gt=0)
     category: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    category_id: Optional[int] = None
+    subcategory_id: Optional[int] = None
     image: Optional[HttpUrl] = None
     stock: Optional[int] = Field(default=None, ge=0, le=100_000)
     active: Optional[bool] = None
@@ -63,3 +67,40 @@ class SyncResult(BaseModel):
     updated: int
     total_received: int
     source: str = "Fake Store API"
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+
+
+class CategoryUpdate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+
+
+class Category(BaseModel):
+    id: int
+    name: str
+    slug: str
+    product_count: int = 0
+    subcategory_count: int = 0
+    created_at: datetime
+
+
+class SubcategoryCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    category_id: int
+
+
+class SubcategoryUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    category_id: Optional[int] = None
+
+
+class Subcategory(BaseModel):
+    id: int
+    name: str
+    slug: str
+    category_id: int
+    category_name: str
+    product_count: int = 0
+    created_at: datetime

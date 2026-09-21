@@ -75,3 +75,42 @@ def test_sync_fake_store(tmp_path: Path, monkeypatch) -> None:
         product = client.get("/api/products").json()["items"][0]
         assert product["source"] == "fake_store"
         assert product["external_id"] == 42
+
+
+def test_category_and_subcategory_management(tmp_path: Path, monkeypatch) -> None:
+    test_database = tmp_path / "categories.db"
+    monkeypatch.setattr(database, "DATABASE_PATH", test_database)
+
+    with TestClient(app) as client:
+        category = client.post("/api/categories", json={"name": "Casa"})
+        assert category.status_code == 201
+        category_id = category.json()["id"]
+
+        subcategory = client.post(
+            "/api/subcategories", json={"name": "Cozinha", "category_id": category_id}
+        )
+        assert subcategory.status_code == 201
+        subcategory_id = subcategory.json()["id"]
+
+        product = client.post(
+            "/api/products",
+            json={
+                "title": "Produto categorizado",
+                "description": "Valida o vínculo de categorias.",
+                "price": 79.9,
+                "category": "Casa",
+                "category_id": category_id,
+                "subcategory_id": subcategory_id,
+                "image": "https://example.com/home.png",
+                "stock": 10,
+            },
+        )
+        assert product.status_code == 201
+        assert product.json()["subcategory_id"] == subcategory_id
+
+        blocked = client.delete(f"/api/categories/{category_id}")
+        assert blocked.status_code == 409
+
+        assert client.delete(f"/api/products/{product.json()['id']}").status_code == 204
+        assert client.delete(f"/api/subcategories/{subcategory_id}").status_code == 204
+        assert client.delete(f"/api/categories/{category_id}").status_code == 204

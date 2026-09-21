@@ -23,6 +23,10 @@ API REST do MVP Vitrine. O serviço gerencia produtos em SQLite, fornece indicad
 | DELETE | `/api/products/{id}` | Excluir um produto |
 | POST | `/api/products/sync` | Sincronizar produtos da Fake Store |
 | GET | `/api/dashboard` | Obter métricas administrativas |
+| GET/POST | `/api/categories` | Listar e cadastrar categorias |
+| PATCH/DELETE | `/api/categories/{id}` | Editar e excluir categorias |
+| GET/POST | `/api/subcategories` | Listar e cadastrar subcategorias |
+| PATCH/DELETE | `/api/subcategories/{id}` | Editar e excluir subcategorias |
 
 Todas as rotas, parâmetros e modelos podem ser testados no Swagger em `/docs`.
 
