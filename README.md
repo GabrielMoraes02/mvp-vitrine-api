@@ -1,6 +1,6 @@
 # Vitrine API
 
-API REST do MVP Vitrine. O serviço gerencia produtos em SQLite, fornece indicadores para o painel administrativo e integra o catálogo público da Fake Store API.
+API REST do MVP Vitrine. O serviço gerencia produtos, pedidos e despesas em SQLite, fornece relatórios financeiros para o painel administrativo e integra um catálogo público externo.
 
 ## Tecnologias
 
@@ -27,6 +27,11 @@ API REST do MVP Vitrine. O serviço gerencia produtos em SQLite, fornece indicad
 | PATCH/DELETE | `/api/categories/{id}` | Editar e excluir categorias |
 | GET/POST | `/api/subcategories` | Listar e cadastrar subcategorias |
 | PATCH/DELETE | `/api/subcategories/{id}` | Editar e excluir subcategorias |
+| POST | `/api/orders` | Registrar pedido, calcular total e baixar estoque |
+| GET | `/api/orders` | Listar pedidos recentes |
+| GET | `/api/reports/sales` | Consolidar vendas, despesas, saldo e indicadores |
+| POST | `/api/expenses` | Registrar uma despesa |
+| DELETE | `/api/expenses/{id}` | Excluir uma despesa |
 
 Todas as rotas, parâmetros e modelos podem ser testados no Swagger em `/docs`.
 
@@ -59,7 +64,7 @@ uvicorn app.main:app --reload
 pytest -q
 ```
 
-Os testes validam o CRUD completo, persistência, métricas e sincronização externa simulada.
+Os testes validam o CRUD completo, persistência, métricas, sincronização externa, pedidos, baixa de estoque e relatório financeiro.
 
 ## Configuração
 

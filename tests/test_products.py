@@ -162,3 +162,69 @@ def test_product_rejects_invalid_classification(tmp_path: Path, monkeypatch) -> 
         )
         assert mismatched.status_code == 422
         assert "não pertence" in mismatched.json()["detail"]
+
+
+def test_sales_and_financial_report(tmp_path: Path, monkeypatch) -> None:
+    test_database = tmp_path / "sales.db"
+    monkeypatch.setattr(database, "DATABASE_PATH", test_database)
+
+    with TestClient(app) as client:
+        product = client.post(
+            "/api/products",
+            json={
+                "title": "Produto vendido",
+                "description": "Produto usado no teste de vendas.",
+                "price": 75.5,
+                "category": "Testes",
+                "image": "https://example.com/sale.png",
+                "stock": 5,
+            },
+        ).json()
+        order = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Cliente Teste",
+                "customer_email": "cliente@example.com",
+                "payment_method": "pix",
+                "shipping_address": "Rua de Teste, 123 - São Paulo/SP",
+                "items": [{"product_id": product["id"], "quantity": 2}],
+            },
+        )
+        assert order.status_code == 201
+        assert order.json()["total"] == 151.0
+        assert order.json()["order_number"].startswith("VTR")
+        assert client.get(f"/api/products/{product['id']}").json()["stock"] == 3
+
+        unavailable = client.post(
+            "/api/orders",
+            json={
+                "customer_name": "Cliente Teste",
+                "customer_email": "cliente@example.com",
+                "payment_method": "card",
+                "shipping_address": "Rua de Teste, 123 - São Paulo/SP",
+                "items": [{"product_id": product["id"], "quantity": 4}],
+            },
+        )
+        assert unavailable.status_code == 409
+
+        expense = client.post(
+            "/api/expenses",
+            json={
+                "description": "Embalagens",
+                "category": "Operacional",
+                "amount": 20,
+                "expense_date": "2026-09-23",
+            },
+        )
+        assert expense.status_code == 201
+
+        report = client.get("/api/reports/sales?days=30").json()
+        assert report["orders_count"] == 1
+        assert report["total_revenue"] == 151.0
+        assert report["total_expenses"] == 20.0
+        assert report["net_balance"] == 131.0
+        assert report["items_sold"] == 2
+        assert report["payment_methods"][0]["method"] == "pix"
+        assert report["top_products"][0]["quantity"] == 2
+
+        assert client.delete(f"/api/expenses/{expense.json()['id']}").status_code == 204

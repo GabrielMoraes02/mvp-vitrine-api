@@ -3,9 +3,10 @@ from __future__ import annotations
 import sqlite3
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .config import DATABASE_PATH
 
@@ -62,6 +63,37 @@ def init_database(database_path: Path | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
             CREATE INDEX IF NOT EXISTS idx_products_active ON products(active);
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_number TEXT NOT NULL UNIQUE,
+                customer_name TEXT NOT NULL,
+                customer_email TEXT NOT NULL,
+                payment_method TEXT NOT NULL CHECK(payment_method IN ('card', 'pix', 'boleto')),
+                status TEXT NOT NULL DEFAULT 'paid' CHECK(status IN ('paid', 'cancelled')),
+                total REAL NOT NULL CHECK(total >= 0),
+                shipping_address TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+                product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+                product_title TEXT NOT NULL,
+                unit_price REAL NOT NULL CHECK(unit_price > 0),
+                quantity INTEGER NOT NULL CHECK(quantity > 0),
+                total REAL NOT NULL CHECK(total > 0)
+            );
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description TEXT NOT NULL,
+                category TEXT NOT NULL,
+                amount REAL NOT NULL CHECK(amount > 0),
+                expense_date TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
+            CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+            CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
             """
         )
         product_columns = {row["name"] for row in connection.execute("PRAGMA table_info(products)")}
@@ -406,3 +438,207 @@ def delete_subcategory(subcategory_id: int) -> tuple[bool, str | None]:
     with connect() as connection:
         connection.execute("DELETE FROM subcategories WHERE id = ?", (subcategory_id,))
     return True, None
+
+
+def get_order(order_id: int) -> dict[str, Any] | None:
+    with connect() as connection:
+        order = connection.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not order:
+            return None
+        items = connection.execute(
+            """
+            SELECT product_id, product_title, unit_price, quantity, total
+            FROM order_items WHERE order_id = ? ORDER BY id
+            """,
+            (order_id,),
+        ).fetchall()
+    result = dict(order)
+    result["items"] = [dict(item) for item in items]
+    return result
+
+
+def create_order(data: dict[str, Any]) -> dict[str, Any]:
+    now = utc_now()
+    order_number = f"VTR{datetime.now(timezone.utc).strftime('%y%m%d')}{uuid4().hex[:6].upper()}"
+    with connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        prepared_items: list[dict[str, Any]] = []
+        total = 0.0
+        for requested in data["items"]:
+            product = connection.execute(
+                "SELECT id, title, price, stock, active FROM products WHERE id = ?",
+                (requested["product_id"],),
+            ).fetchone()
+            if not product or not product["active"]:
+                raise ValueError("Um dos produtos não está mais disponível.")
+            quantity = requested["quantity"]
+            if product["stock"] < quantity:
+                raise ValueError(f"Estoque insuficiente para {product['title']}.")
+            item_total = round(product["price"] * quantity, 2)
+            total += item_total
+            prepared_items.append(
+                {
+                    "product_id": product["id"],
+                    "product_title": product["title"],
+                    "unit_price": product["price"],
+                    "quantity": quantity,
+                    "total": item_total,
+                }
+            )
+
+        cursor = connection.execute(
+            """
+            INSERT INTO orders (
+                order_number, customer_name, customer_email, payment_method,
+                status, total, shipping_address, created_at
+            ) VALUES (?, ?, ?, ?, 'paid', ?, ?, ?)
+            """,
+            (
+                order_number,
+                data["customer_name"],
+                data["customer_email"],
+                data["payment_method"],
+                round(total, 2),
+                data["shipping_address"],
+                now,
+            ),
+        )
+        order_id = cursor.lastrowid
+        for item in prepared_items:
+            connection.execute(
+                """
+                INSERT INTO order_items (
+                    order_id, product_id, product_title, unit_price, quantity, total
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order_id,
+                    item["product_id"],
+                    item["product_title"],
+                    item["unit_price"],
+                    item["quantity"],
+                    item["total"],
+                ),
+            )
+            connection.execute(
+                "UPDATE products SET stock = stock - ?, updated_at = ? WHERE id = ?",
+                (item["quantity"], now, item["product_id"]),
+            )
+    return get_order(order_id)  # type: ignore[return-value]
+
+
+def list_orders(limit: int = 50) -> list[dict[str, Any]]:
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT * FROM orders ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [{**dict(row), "items": []} for row in rows]
+
+
+def create_expense(data: dict[str, Any]) -> dict[str, Any]:
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO expenses (description, category, amount, expense_date, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                data["description"].strip(),
+                data["category"].strip(),
+                data["amount"],
+                str(data["expense_date"]),
+                utc_now(),
+            ),
+        )
+        expense_id = cursor.lastrowid
+        row = connection.execute("SELECT * FROM expenses WHERE id = ?", (expense_id,)).fetchone()
+    return dict(row)
+
+
+def delete_expense(expense_id: int) -> bool:
+    with connect() as connection:
+        cursor = connection.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    return cursor.rowcount > 0
+
+
+def sales_report(days: int) -> dict[str, Any]:
+    start = (datetime.now(timezone.utc) - timedelta(days=days - 1)).date().isoformat()
+    with connect() as connection:
+        summary = connection.execute(
+            """
+            SELECT COUNT(*) AS orders_count, COALESCE(SUM(total), 0) AS total_revenue
+            FROM orders WHERE status = 'paid' AND date(created_at) >= date(?)
+            """,
+            (start,),
+        ).fetchone()
+        items_sold = connection.execute(
+            """
+            SELECT COALESCE(SUM(oi.quantity), 0)
+            FROM order_items oi JOIN orders o ON o.id = oi.order_id
+            WHERE o.status = 'paid' AND date(o.created_at) >= date(?)
+            """,
+            (start,),
+        ).fetchone()[0]
+        total_expenses = connection.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(expense_date) >= date(?)",
+            (start,),
+        ).fetchone()[0]
+        sales_by_day = connection.execute(
+            """
+            SELECT date(created_at) AS date, COUNT(*) AS orders, ROUND(SUM(total), 2) AS revenue
+            FROM orders WHERE status = 'paid' AND date(created_at) >= date(?)
+            GROUP BY date(created_at) ORDER BY date(created_at)
+            """,
+            (start,),
+        ).fetchall()
+        payment_methods = connection.execute(
+            """
+            SELECT payment_method AS method, COUNT(*) AS orders, ROUND(SUM(total), 2) AS revenue
+            FROM orders WHERE status = 'paid' AND date(created_at) >= date(?)
+            GROUP BY payment_method ORDER BY revenue DESC
+            """,
+            (start,),
+        ).fetchall()
+        top_products = connection.execute(
+            """
+            SELECT oi.product_title AS title, SUM(oi.quantity) AS quantity,
+                ROUND(SUM(oi.total), 2) AS revenue
+            FROM order_items oi JOIN orders o ON o.id = oi.order_id
+            WHERE o.status = 'paid' AND date(o.created_at) >= date(?)
+            GROUP BY oi.product_title ORDER BY quantity DESC, revenue DESC LIMIT 5
+            """,
+            (start,),
+        ).fetchall()
+        recent_orders = connection.execute(
+            """
+            SELECT order_number, customer_name, payment_method, status, total, created_at
+            FROM orders WHERE date(created_at) >= date(?)
+            ORDER BY created_at DESC LIMIT 8
+            """,
+            (start,),
+        ).fetchall()
+        expenses = connection.execute(
+            """
+            SELECT * FROM expenses WHERE date(expense_date) >= date(?)
+            ORDER BY expense_date DESC, id DESC
+            """,
+            (start,),
+        ).fetchall()
+
+    revenue = round(summary["total_revenue"], 2)
+    expense_total = round(total_expenses, 2)
+    order_count = summary["orders_count"]
+    return {
+        "days": days,
+        "total_revenue": revenue,
+        "total_expenses": expense_total,
+        "net_balance": round(revenue - expense_total, 2),
+        "orders_count": order_count,
+        "average_ticket": round(revenue / order_count, 2) if order_count else 0,
+        "items_sold": items_sold,
+        "sales_by_day": [dict(row) for row in sales_by_day],
+        "payment_methods": [dict(row) for row in payment_methods],
+        "top_products": [dict(row) for row in top_products],
+        "recent_orders": [dict(row) for row in recent_orders],
+        "expenses": [dict(row) for row in expenses],
+    }

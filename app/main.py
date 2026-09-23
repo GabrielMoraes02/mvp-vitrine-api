@@ -13,11 +13,16 @@ from .models import (
     CategoryCreate,
     CategoryUpdate,
     DashboardSummary,
+    Expense,
+    ExpenseCreate,
+    Order,
+    OrderCreate,
     Product,
     ProductCreate,
     ProductList,
     ProductUpdate,
     SyncResult,
+    SalesReport,
     Subcategory,
     SubcategoryCreate,
     SubcategoryUpdate,
@@ -245,4 +250,36 @@ def remove_subcategory(subcategory_id: int) -> Response:
         if reason == "in_use":
             raise HTTPException(status_code=409, detail="A subcategoria possui produtos vinculados.")
         raise HTTPException(status_code=404, detail="Subcategoria não encontrada.")
+    return Response(status_code=204)
+
+
+@app.post("/api/orders", response_model=Order, status_code=201, tags=["Vendas"])
+def post_order(payload: OrderCreate) -> Order:
+    try:
+        return Order(**database.create_order(payload.model_dump()))
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.get("/api/orders", response_model=list[Order], tags=["Vendas"])
+def get_orders(limit: int = Query(default=50, ge=1, le=100)) -> list[Order]:
+    return [Order(**item) for item in database.list_orders(limit)]
+
+
+@app.get("/api/reports/sales", response_model=SalesReport, tags=["Relatórios"])
+def get_sales_report(
+    days: int = Query(default=30, ge=1, le=365)
+) -> SalesReport:
+    return SalesReport(**database.sales_report(days))
+
+
+@app.post("/api/expenses", response_model=Expense, status_code=201, tags=["Financeiro"])
+def post_expense(payload: ExpenseCreate) -> Expense:
+    return Expense(**database.create_expense(payload.model_dump()))
+
+
+@app.delete("/api/expenses/{expense_id}", status_code=204, tags=["Financeiro"])
+def remove_expense(expense_id: int) -> Response:
+    if not database.delete_expense(expense_id):
+        raise HTTPException(status_code=404, detail="Despesa não encontrada.")
     return Response(status_code=204)
