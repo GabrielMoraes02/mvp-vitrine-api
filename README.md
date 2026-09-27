@@ -2,7 +2,7 @@
 
 API REST da plataforma Vitrine. O serviço gerencia produtos, pedidos e despesas em SQLite, fornece relatórios financeiros para o painel administrativo e integra um catálogo público externo.
 
-Interface web: [github.com/GabrielMoraes02/vitrine-frontend](https://github.com/GabrielMoraes02/vitrine-frontend)
+Interface web: [github.com/GabrielMoraes02/mvp-vitrine-frontend](https://github.com/GabrielMoraes02/mvp-vitrine-frontend)
 
 ## Tecnologias
 
